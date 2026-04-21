@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 venv/
 .venv/
-
+legacy_data/*.csv
 # Docker
 .env
 

@@ -1,0 +1,44 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: order_rabbitmq
+    ports:
+      - "5672:5672"   # Cổng giao tiếp AMQP
+      - "15672:15672" # Cổng Dashboard UI (Quyết có thể dùng để test)
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: password123
+    networks:
+      - micro_net
+
+  mysql_order:
+    image: mysql:8.0
+    container_name: order_db
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: order_db
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql # Tĩnh & Trung dùng file init ở đây
+    networks:
+      - micro_net
+
+  postgres_inventory:
+    image: postgres:14-alpine
+    container_name: inventory_db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: inventory_db
+    networks:
+      - micro_net
+
+networks:
+  micro_net:
+    driver: bridge
