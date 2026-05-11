@@ -6,13 +6,18 @@ services:
     image: rabbitmq:3-management-alpine
     container_name: order_rabbitmq
     ports:
-      - "5672:5672"   # Cổng giao tiếp AMQP
-      - "15672:15672" # Cổng Dashboard UI (Quyết có thể dùng để test)
+      - "5672:5672"
+      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: admin
       RABBITMQ_DEFAULT_PASS: password123
     networks:
       - micro_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mysql_order:
     image: mysql:8.0
@@ -23,9 +28,15 @@ services:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: order_db
     volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql # Tĩnh & Trung dùng file init ở đây
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql_data:/var/lib/mysql
     networks:
       - micro_net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   postgres_inventory:
     image: postgres:14-alpine
@@ -36,9 +47,132 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password123
       POSTGRES_DB: inventory_db
+    volumes:
+      - ./init_postgres.sql:/docker-entrypoint-initdb.d/init_postgres.sql
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - micro_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d inventory_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  order_api:
+    build: .
+    container_name: order_api
+    command: uvicorn order_processing.order_api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - MYSQL_HOST=order_db
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASS=root
+      - MYSQL_DB=order_db
+      - RABBITMQ_HOST=order_rabbitmq
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASS=password123
+    networks:
+      - micro_net
+    depends_on:
+      mysql_order:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  order_worker:
+    build: .
+    container_name: order_worker
+    command: python order_processing/order_worker.py
+    environment:
+      - MYSQL_HOST=order_db
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASS=root
+      - MYSQL_DB=order_db
+      - PG_HOST=inventory_db
+      - PG_PORT=5432
+      - PG_USER=admin
+      - PG_PASS=password123
+      - PG_DB=inventory_db
+      - RABBITMQ_HOST=order_rabbitmq
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASS=password123
+    networks:
+      - micro_net
+    depends_on:
+      mysql_order:
+        condition: service_healthy
+      postgres_inventory:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  dashboard_api:
+    build: .
+    container_name: dashboard_api
+    command: uvicorn dashboard.dashboard_api:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    environment:
+      - MYSQL_HOST=order_db
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASS=root
+      - MYSQL_DB=order_db
+      - PG_HOST=inventory_db
+      - PG_PORT=5432
+      - PG_USER=admin
+      - PG_PASS=password123
+      - PG_DB=inventory_db
+    networks:
+      - micro_net
+    depends_on:
+      mysql_order:
+        condition: service_healthy
+      postgres_inventory:
+        condition: service_healthy
+
+  legacy_poller:
+    build: .
+    container_name: legacy_poller
+    command: python legacy_integration/legacy_poller.py
+    environment:
+      - MYSQL_HOST=order_db
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=root
+      - MYSQL_DB=order_db
+      - PG_HOST=inventory_db
+      - PG_PORT=5432
+      - PG_USER=admin
+      - PG_PASSWORD=password123
+      - PG_DB=inventory_db
+    volumes:
+      - ./legacy_data:/app/legacy_data
+    networks:
+      - micro_net
+    depends_on:
+      mysql_order:
+        condition: service_healthy
+      postgres_inventory:
+        condition: service_healthy
+
+  frontend:
+    image: nginx:alpine
+    container_name: dashboard_frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./dashboard:/usr/share/nginx/html:ro
     networks:
       - micro_net
 
 networks:
   micro_net:
     driver: bridge
+
+volumes:
+  mysql_data:
+  postgres_data:

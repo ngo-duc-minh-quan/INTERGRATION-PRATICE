@@ -1,0 +1,40 @@
+# 1. Tạo môi trường ảo mới
+python -m venv venv
+
+# 2. Kích hoạt môi trường (Dành cho Windows)
+.\venv\Scripts\activate
+# (Nếu dùng Mac/Linux thì gõ: source venv/bin/activate)
+
+# 3. Cài toàn bộ thư viện bằng 1 lệnh duy nhất
+pip install -r requirements.txt
+#4 mở docker và chạy 
+docker-compose up -d
+
+Terminal 1: cd order_processing -> python -m uvicorn order_api:app --reload
+
+Terminal 2: cd order_processing -> python order_worker.py
+
+Terminal 3: cd legacy_integration -> Bỏ file CSV vào legacy_data -> python legacy_poller.py
+
+# Tạo và kích hoạt môi trường ảo (nếu chưa có)
+python -m venv venv
+.\venv\Scripts\activate
+
+# Cài đặt các thư viện cần thiết
+pip install -r requirements.txt
+#Chạy Order API (Cổng 8000)
+uvicorn order_processing.order_api:app --reload
+#Chạy Dashboard API (Cổng 8001):
+uvicorn dashboard.dashboard_api:app --port 8001 --reload
+#Chạy Worker xử lý đơn hàng:
+python order_processing/order_worker.py
+#Chạy Poller theo dõi dữ liệu cũ (Legacy):
+python legacy_integration/legacy_poller.py
+#Tạo dữ liệu CSV mẫu:
+python generate_mock_csv.py
+#Chạy script làm sạch dữ liệu:
+python module1_data_cleaning.py
+
+docker-compose up -d rabbitmq 
+mysql_order postgres_inventory
+
